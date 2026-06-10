@@ -2,11 +2,13 @@
 """
 Document Scan Restorer
 ─────────────────────
-Loads a PDF, lets you tweak levels / contrast / colour balance /
-gradient-shadow normalisation with live preview, crop pages, then
-exports a clean PDF.
+Loads a PDF or images (PNG/JPEG/BMP/TIFF), lets you tweak levels /
+contrast / colour balance / gradient-shadow normalisation with live
+preview, crop pages, then exports a clean PDF.
 
-Dependencies: PyMuPDF (fitz), Pillow, NumPy, SciPy
+Drag-and-drop of files onto the window is supported.
+
+Dependencies: PyMuPDF (fitz), Pillow, NumPy, SciPy, tkinterdnd2
 """
 from __future__ import annotations
 
@@ -14,6 +16,12 @@ import io
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    _DND_AVAILABLE = True
+except ImportError:
+    _DND_AVAILABLE = False
 
 import fitz
 import numpy as np
@@ -123,7 +131,9 @@ class SliderRow:
 
 
 # App
-class App(tk.Tk):
+_AppBase = TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk
+
+class App(_AppBase):
     def __init__(self):
         super().__init__()
         self.title("Document Scan Restorer")
@@ -134,6 +144,8 @@ class App(tk.Tk):
         self.doc         = None
         self.page_index  = 0
         self.raw_pages   = []
+        self._source_type = None  # "pdf" or "images"
+        self._image_paths = []    # original paths when loaded from images
 
         self._preview_job = None
         self._tk_img      = None
@@ -150,7 +162,7 @@ class App(tk.Tk):
         self._build_ui()
         self._apply_style()
 
-    # build UI 
+    # build UI
 
     def _build_ui(self):
         # top bar
@@ -160,7 +172,7 @@ class App(tk.Tk):
         btn = dict(bg=ACCENT, fg="white", relief=tk.FLAT, padx=14, pady=4,
                    font=("Helvetica", 10, "bold"), cursor="hand2",
                    activebackground="#6a5ae0", activeforeground="white")
-        tk.Button(top, text="📂  Open PDF",   command=self._open_pdf,  **btn).pack(side=tk.LEFT,  padx=8, pady=6)
+        tk.Button(top, text="📂  Open…", command=self._open_dialog, **btn).pack(side=tk.LEFT, padx=8, pady=6)
         self.lbl_file = tk.Label(top, text="No file loaded", bg=PANEL_BG, fg=TEXT_FG, font=("Helvetica", 9))
         self.lbl_file.pack(side=tk.LEFT, padx=4)
         tk.Button(top, text="💾  Export PDF", command=self._export_pdf, **btn).pack(side=tk.RIGHT, padx=8, pady=6)
@@ -242,8 +254,14 @@ class App(tk.Tk):
         self.canvas.bind("<Button-4>",        self._cv_scroll)
         self.canvas.bind("<Button-5>",        self._cv_scroll)
 
+        # drag-and-drop (requires tkinterdnd2)
+        if _DND_AVAILABLE:
+            self.drop_target_register(DND_FILES)
+            self.dnd_bind("<<Drop>>", self._on_drop)
+
         # status
-        self.status_var = tk.StringVar(value="Open a PDF to begin.")
+        hint = "Open a PDF or images to begin — or drag & drop files here."
+        self.status_var = tk.StringVar(value=hint)
         tk.Label(self, textvariable=self.status_var, bg=PANEL_BG, fg="#888aaa",
                  font=("Helvetica", 8), anchor="w").pack(fill=tk.X, padx=8, pady=(0,2))
 
@@ -524,19 +542,66 @@ class App(tk.Tk):
         self._overlay += [txt, bg]
 
     # page / file
-    def _open_pdf(self):
+
+    def _open_dialog(self):
+        """Single open button — detects PDF vs images from extension."""
         path = filedialog.askopenfilename(
-            title="Open scanned PDF",
-            filetypes=[("PDF files","*.pdf"),("All files","*.*")])
+            title="Open PDF or image(s)",
+            filetypes=[
+                ("All supported", "*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"),
+                ("PDF",   "*.pdf"),
+                ("Images","*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"),
+                ("All files","*.*"),
+            ])
+        if path:
+            self._load_paths([path])
+
+    def _on_drop(self, event):
+        """Handle files dropped onto the window."""
+        # tkinterdnd2 encodes multiple paths as a Tcl list: {path1} {path2} …
+        # splitlist handles spaces-in-paths correctly
+        try:
+            paths = list(self.tk.splitlist(event.data))
+        except Exception:
+            paths = event.data.split()
+        if paths:
+            self._load_paths(paths)
+
+    def _load_paths(self, paths: list[str]):
+        """Route one-or-more paths to PDF or image loader."""
+        IMAGE_EXT = {".png", ".jpg", ".jpeg", ".bmp",
+                     ".tif", ".tiff", ".webp"}
+        import os
+        first_ext = os.path.splitext(paths[0])[1].lower()
+        if first_ext == ".pdf":
+            self._open_pdf(paths[0])
+        else:
+            # treat all dropped/selected paths as an image stack;
+            # silently skip anything that isn't a recognised image
+            img_paths = [p for p in paths
+                         if os.path.splitext(p)[1].lower() in IMAGE_EXT]
+            if img_paths:
+                self._open_images(img_paths)
+            else:
+                messagebox.showwarning("Unsupported",
+                    f"No recognised file type:\n{paths[0]}")
+
+    def _open_pdf(self, path: str | None = None):
+        if path is None:
+            path = filedialog.askopenfilename(
+                title="Open scanned PDF",
+                filetypes=[("PDF files","*.pdf"),("All files","*.*")])
         if not path:
             return
         self.status_var.set("Loading…")
         self.update_idletasks()
         try:
-            self.doc        = fitz.open(path)
-            self.page_index = 0
-            self.raw_pages  = []
-            self.crop_norm  = None
+            self.doc          = fitz.open(path)
+            self._source_type = "pdf"
+            self._image_paths = []
+            self.page_index   = 0
+            self.raw_pages    = []
+            self.crop_norm    = None
             self._update_crop_label()
             self.lbl_file.config(text=path.split("/")[-1])
             self._rasterise_page(0)
@@ -544,7 +609,50 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Could not open PDF:\n{e}")
 
+    def _open_images(self, paths: list[str] | None = None):
+        if paths is None:
+            paths = list(filedialog.askopenfilenames(
+                title="Open image(s)",
+                filetypes=[
+                    ("Images", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"),
+                    ("PNG",  "*.png"),
+                    ("JPEG", "*.jpg *.jpeg"),
+                    ("BMP",  "*.bmp"),
+                    ("TIFF", "*.tif *.tiff"),
+                    ("All files", "*.*"),
+                ]))
+        if not paths:
+            return
+        self.status_var.set("Loading…")
+        self.update_idletasks()
+        try:
+            # load all images eagerly (they're already rasterised)
+            loaded = []
+            for p in paths:
+                img = Image.open(p).convert("RGB")
+                img.load()  # force decode now, not lazily
+                loaded.append(img)
+            self.doc          = None
+            self._source_type = "images"
+            self._image_paths = list(paths)
+            self.page_index   = 0
+            self.raw_pages    = loaded
+            self.crop_norm    = None
+            self._update_crop_label()
+            label = paths[0].split("/")[-1]
+            if len(paths) > 1:
+                label += f"  (+{len(paths)-1} more)"
+            self.lbl_file.config(text=label)
+            self._refresh_canvas()
+            self._update_page_label()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open image(s):\n{e}")
+
     def _rasterise_page(self, idx):
+        if self._source_type == "images":
+            # images are already loaded into raw_pages; nothing to rasterise
+            self._refresh_canvas()
+            return
         if idx >= len(self.raw_pages):
             self.raw_pages.extend([None]*(idx+1-len(self.raw_pages)))
         if self.raw_pages[idx] is None:
@@ -555,19 +663,23 @@ class App(tk.Tk):
         self._refresh_canvas()
 
     def _prev_page(self):
-        if self.doc and self.page_index > 0:
+        if self.raw_pages and self.page_index > 0:
             self.page_index -= 1
             self._rasterise_page(self.page_index)
             self._update_page_label()
 
     def _next_page(self):
-        if self.doc and self.page_index < len(self.doc)-1:
+        total = len(self.raw_pages) if self._source_type == "images" else (len(self.doc) if self.doc else 0)
+        if self.raw_pages and self.page_index < total - 1:
             self.page_index += 1
             self._rasterise_page(self.page_index)
             self._update_page_label()
 
     def _update_page_label(self):
-        n = len(self.doc) if self.doc else 0
+        if self._source_type == "images":
+            n = len(self.raw_pages)
+        else:
+            n = len(self.doc) if self.doc else 0
         self.lbl_page.config(text=f"Page {self.page_index+1} / {n}")
 
     # preview
@@ -611,7 +723,10 @@ class App(tk.Tk):
             pw = int((self.crop_norm[2]-self.crop_norm[0])*s[0])
             ph = int((self.crop_norm[3]-self.crop_norm[1])*s[1])
             cr = f"  │  ✂ {pw}×{ph}px"
-        n = len(self.doc) if self.doc else "—"
+        if self._source_type == "images":
+            n = len(self.raw_pages)
+        else:
+            n = len(self.doc) if self.doc else "—"
         self.status_var.set(f"{img.width}×{img.height}px  │  Page {self.page_index+1}/{n}{cr}")
 
     def _cv_scroll(self, event):
@@ -634,8 +749,8 @@ class App(tk.Tk):
     # export
 
     def _export_pdf(self):
-        if not self.doc:
-            messagebox.showwarning("No PDF","Please open a PDF first.")
+        if not self.raw_pages:
+            messagebox.showwarning("No content", "Please open a PDF or images first.")
             return
         out_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
@@ -646,17 +761,28 @@ class App(tk.Tk):
 
         params    = self._get_params()
         crop_norm = self.crop_norm
-        n         = len(self.doc)
+
+        if self._source_type == "images":
+            pages_raw = self.raw_pages
+            n = len(pages_raw)
+        else:
+            n = len(self.doc)
+            pages_raw = None  # will rasterise from doc per page
 
         try:
             out_doc = fitz.open()
             for i in range(n):
                 self.status_var.set(f"Exporting page {i+1}/{n}…")
                 self.update_idletasks()
-                page = self.doc[i]
-                mat  = fitz.Matrix(EXPORT_DPI/72, EXPORT_DPI/72)
-                pix  = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
-                raw  = Image.frombytes("RGB",(pix.width,pix.height),pix.samples)
+
+                if self._source_type == "images":
+                    raw = pages_raw[i]
+                else:
+                    page = self.doc[i]
+                    mat  = fitz.Matrix(EXPORT_DPI/72, EXPORT_DPI/72)
+                    pix  = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
+                    raw  = Image.frombytes("RGB",(pix.width,pix.height),pix.samples)
+
                 processed = process_page(raw, params, crop_norm)
 
                 buf = io.BytesIO()
@@ -665,8 +791,11 @@ class App(tk.Tk):
                 if crop_norm:
                     ow = processed.width  * 72 / EXPORT_DPI
                     oh = processed.height * 72 / EXPORT_DPI
+                elif self._source_type == "images":
+                    ow = processed.width  * 72 / EXPORT_DPI
+                    oh = processed.height * 72 / EXPORT_DPI
                 else:
-                    ow, oh = page.rect.width, page.rect.height
+                    ow, oh = self.doc[i].rect.width, self.doc[i].rect.height
 
                 new_page = out_doc.new_page(width=ow, height=oh)
                 new_page.insert_image(new_page.rect, stream=buf.getvalue())
