@@ -72,12 +72,12 @@ class AutomationController:
 
     def load_snippets(self):
         try:
-            with open("dblib.py", "r") as f:
+            with open("simer2.py", "r") as f:
                 lines = [line.strip() for line in f if line.strip()]
-            return lines if lines else ["Default snippet: dblib.py is empty."]
+            return lines if lines else ["Default snippet: simer2.py is empty."]
         except Exception as e:
             self.log_message(f"Error loading snippets: {e}")
-            return ["Default snippet: dblib.py not found."]
+            return ["Default snippet: simer2.py not found."]
 
     def open_script_in_pycharm(self):
         try:
