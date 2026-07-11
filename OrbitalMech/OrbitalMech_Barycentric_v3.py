@@ -5,32 +5,86 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
+# ---------------------------------------------------------------- Constants
+# Units everywhere: AU, years, solar masses -> G = 4*pi^2.
+
+G_SIM = 4.0 * np.pi ** 2
+
+M_MOON_MSUN = 3.69e-8        # lunar mass in M(sun)
+D_MOON_AU = 0.002570         # Earth-Moon distance in AU
+R_SUN_AU = 0.00465           # solar radius in AU
+T_SUN = 5772.0               # solar effective temperature, K
+
+# 1 (M_sun * AU^2 / yr^3) expressed in solar luminosities
+LUM_UNIT_LSUN = 3702.0
+
+# Host stellar wind assumptions (solar-calibrated; K dwarfs are typically
+# windier when young, so treat these as a quiet lower bound)
+MDOT_WIND = 2.0e-14          # host wind mass loss, M(sun)/yr
+V_WIND_AU_YR = 84.2          # wind speed ~400 km/s in AU/yr
+
+# Lunar tidal acceleration gradient on Earth, in sim units (2*G*m/d^3).
+# Sanity anchor: the Sun's tide on Earth computes to 0.46 of this, the
+# textbook value.
+TIDE_MOON = 2.0 * G_SIM * M_MOON_MSUN / D_MOON_AU ** 3
+
+
+def planck_band_fraction(T, lam1=100e-9, lam2=400e-9, n=400):
+    """Fraction of a blackbody's total output emitted between lam1 and lam2
+    (default: 100-400 nm, the UV band). Numerical integral of the Planck
+    function normalized by sigma*T^4."""
+    h = 6.626e-34
+    c = 2.998e8
+    kB = 1.381e-23
+    sigma = 5.670e-8
+    lam = np.linspace(lam1, lam2, n)
+    B = (2 * np.pi * h * c ** 2 / lam ** 5
+         / (np.exp(h * c / (lam * kB * T)) - 1.0))
+    return np.trapz(B, lam) / (sigma * T ** 4)
+
+
+# UV output of the Sun per unit luminosity, the normalization for
+# "Earth UV units" (UV flux at Earth = 1 by construction)
+F_UV_SUN = planck_band_fraction(T_SUN)
+
+
 class AnimatedOrbitalSimApp:
     """
     Hierarchical binary + S-type planet, restricted 3-body.
 
     Physics model:
-      - Binary (Orange dwarf + White dwarf) is on Keplerian rails around the
-        barycenter. a_wd is the RELATIVE semi-major axis of the pair; each
-        star's barycentric ellipse is the relative orbit scaled by the
-        opposite mass fraction.
-      - Planet is a massless test particle integrated with leapfrog (KDK)
-        in the barycentric inertial frame, pulled by both stars.
-      - All physics runs in the barycentric frame ALWAYS. The view mode
-        ("barycentric" / "orange") is a pure rendering transform: in orange
-        mode every drawn coordinate has the Orange dwarf's instantaneous
-        barycentric position subtracted. Nothing is re-integrated.
+      - Binary (Orange dwarf + White dwarf) on Keplerian rails around the
+        barycenter; a_wd is the RELATIVE semi-major axis of the pair.
+      - Planet is a massless test particle, leapfrog (KDK) in the
+        barycentric inertial frame, pulled by both stars.
+      - View mode ("barycentric" / "orange") is a pure rendering transform.
 
-    Perturbation visibility note:
-      With the defaults (r_peri = a_wd*(1-e) = 14.4 AU, planet at 0.725 AU)
-      the tidal parameter 2*(m_wd/m_orange)*(a_p/r_peri)^3 is ~2e-4. One
-      periastron passage kicks the planet's eccentricity by ~2e-4, a radial
-      wobble of ~20,000 km. That is < 1 pixel at any zoom, so it cannot be
-      SEEN - it is measured instead via the osculating-element readout
-      (a_osc, e_osc, i_osc). The big effects at high mutual inclination are
-      secular (Kozai-Lidov), on ~1e5 yr timescales.
+    v3 planet environment block (strictly physical, fixed Earth-like planet:
+    1 R_earth, Earth-strength magnetosphere, albedo 0.3):
 
-    Units: AU, years, solar masses -> G = 4*pi^2.
+      TIDES  - tidal acceleration gradient 2*G*m/d^3 from each star, in
+               units of the Moon's tide on Earth. Host ~1 lunar tide at
+               0.725 AU; the WD at 14 AU periastron contributes ~1e-4.
+      UV     - blackbody band flux 100-400 nm at the planet, in Earth UV
+               units. Host T_eff from the main-sequence relation
+               T = 5772*M^0.505; WD T_eff from its cooling luminosity and
+               mass-radius relation R = 0.0127*(M/0.6)^(-1/3) R_sun. A
+               0.1 Gyr WD runs ~20,000 K, so per watt it is strongly
+               UV-weighted; distance decides whether that matters.
+      MAG    - magnetopause standoff distance from host wind ram pressure
+               (P ~ 1/r^2, standoff ~ P^(-1/6), Earth = 10 R_E at 1 AU),
+               classified QUIET/ELEVATED/ACTIVE/SEVERE. The WD's
+               Bondi-Hoyle accretion of the host wind is computed honestly
+               and shown as an X-ray luminosity - at 14 AU it is ~1e-13
+               L_sun, i.e. negligible, and the readout says so.
+      CLIMATE- bolometric instellation S from both stars in Earth units,
+               equilibrium temperature T_eq = 278.5*(S*(1-A))^0.25 K, and a
+               phase bin: RUNAWAY >= 1.06 / HOT >= 0.9 / TEMPERATE >= 0.42
+               / COLD >= 0.32 / SNOWBALL below (Kopparapu-style limits for
+               a Sun-like spectrum; K-dwarf limits shift a few percent).
+               Also shows the orbit-averaged S, which scales as
+               1/sqrt(1-e^2) and therefore creeps up as Kozai-Lidov pumps
+               the planet's eccentricity.
     """
 
     def __init__(self, root):
@@ -39,18 +93,14 @@ class AnimatedOrbitalSimApp:
         self.root.geometry("1200x990+25+0")
         self.root.configure(bg="#0d1117")
 
-        # Animation state
         self.is_running = True
         self.time_step = 0.0          # simulation time, years
         self.animation_id = None
         self.ff_in_progress = False
 
-        # Fixed physics timestep (years). Planet period ~0.67 yr for the
-        # defaults -> ~1300 steps per planet orbit. Warp changes how many
-        # substeps run per frame, never the step size.
+        # Fixed physics timestep (years); warp changes substep count only
         self.dt = 0.0005
 
-        # View mode: "barycentric" (default) or "orange" (Orange dwarf fixed)
         self.view_mode = "barycentric"
 
         # Dark theme
@@ -64,8 +114,7 @@ class AnimatedOrbitalSimApp:
                              foreground="white", font=("Arial", 10, "bold"))
         self.style.map("TButton", background=[("active", "#30363d")])
 
-        # Layout
-        self.left_frame = ttk.Frame(root, padding=0, width=280)
+        self.left_frame = ttk.Frame(root, padding=0, width=300)
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
         self.left_frame.pack_propagate(False)
 
@@ -83,23 +132,23 @@ class AnimatedOrbitalSimApp:
     def setup_inputs(self):
         title = ttk.Label(self.left_frame, text="System Parameters",
                           font=("Arial", 14, "bold"), foreground="#58a6ff")
-        title.pack(anchor="w", pady=(5, 10))
+        title.pack(anchor="w", pady=(5, 6))
 
         def create_input(label_text, default_val):
             ttk.Label(self.left_frame, text=label_text).pack(anchor="w")
             e = ttk.Entry(self.left_frame, width=25)
             e.insert(0, str(default_val))
-            e.pack(fill=tk.X, pady=(0, 6))
+            e.pack(fill=tk.X, pady=(0, 4))
             return e
 
         self.year_label = ttk.Label(
             self.left_frame,
             text="Simulation Years : 0",
-            font=("Consolas", 10, "bold"),
+            font=("Consolas", 9, "bold"),
             foreground="#58a6ff",
             justify=tk.LEFT
         )
-        self.year_label.pack(fill=tk.X, pady=(0, 10))
+        self.year_label.pack(fill=tk.X, pady=(0, 6))
 
         self.m_orange_entry = create_input("Orange Dwarf Mass (M☉):", 0.85)
         self.m_wd_entry = create_input("White Dwarf Mass (M☉):", 0.70)
@@ -111,14 +160,27 @@ class AnimatedOrbitalSimApp:
 
         self.btn_calc = ttk.Button(self.left_frame, text="Apply Changes",
                                    command=self.update_parameters)
-        self.btn_calc.pack(fill=tk.X, pady=(8, 12))
+        self.btn_calc.pack(fill=tk.X, pady=(6, 6))
+
+        ttk.Label(self.left_frame, text="Planet Environment",
+                  font=("Arial", 11, "bold"),
+                  foreground="#58a6ff").pack(anchor="w")
+
+        self.env_text = tk.Text(self.left_frame, height=13, bg="#161b22",
+                                fg="#c9d1d9", font=("Consolas", 9), bd=0)
+        self.env_text.pack(fill=tk.X, pady=(0, 6))
+        # Status color tags
+        self.env_text.tag_configure("quiet", foreground="#3fb950")
+        self.env_text.tag_configure("elevated", foreground="#d29922")
+        self.env_text.tag_configure("active", foreground="#f97316")
+        self.env_text.tag_configure("severe", foreground="#f85149")
 
         ttk.Label(self.left_frame, text="Calculated Metrics",
                   font=("Arial", 11, "bold"),
                   foreground="#58a6ff").pack(anchor="w")
 
-        self.output_text = tk.Text(self.left_frame, height=12, bg="#161b22",
-                                   fg="#c9d1d9", font=("Consolas", 10), bd=0)
+        self.output_text = tk.Text(self.left_frame, height=11, bg="#161b22",
+                                   fg="#c9d1d9", font=("Consolas", 9), bd=0)
         self.output_text.pack(fill=tk.BOTH, expand=True)
 
         self.zoom_factor = 0.15
@@ -132,7 +194,6 @@ class AnimatedOrbitalSimApp:
         self.row2 = ttk.Frame(self.control_frame)
         self.row2.pack(fill=tk.X)
 
-        # ---------- Row 1 ----------
         self.btn_toggle = ttk.Button(self.row1, text="Pause Simulation",
                                      command=self.toggle_animation)
         self.btn_toggle.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
@@ -149,7 +210,6 @@ class AnimatedOrbitalSimApp:
                                    command=self.toggle_view)
         self.btn_view.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
-        # ---------- Row 2 ----------
         ttk.Button(self.row2, text="Zoom In",
                    command=lambda: self.change_zoom(0.8)).pack(
             side=tk.LEFT, padx=2)
@@ -174,7 +234,6 @@ class AnimatedOrbitalSimApp:
         self.ff_years_entry.insert(0, "0.25")
         self.ff_years_entry.pack(side=tk.LEFT)
 
-        # ---------- Plot ----------
         self.fig = plt.figure(figsize=(8, 8), facecolor="#0d1117")
         self.ax = self.fig.add_subplot(111, projection="3d")
         self.ax.set_facecolor("#0d1117")
@@ -196,9 +255,7 @@ class AnimatedOrbitalSimApp:
     # ------------------------------------------------------ Core physics
 
     def solve_kepler(self, M, e, tol=1e-12, max_iter=30):
-        """Newton-Raphson on Kepler's equation. Starting guess E = M + e*sin(M)
-        keeps Newton well-behaved even at e = 0.875 near periastron, where a
-        plain E0 = M start converges slowly or overshoots."""
+        """Newton-Raphson on Kepler's equation, guess E = M + e*sin(M)."""
         M = np.mod(M, 2.0 * np.pi)
         E = M + e * np.sin(M)
         for _ in range(max_iter):
@@ -209,12 +266,7 @@ class AnimatedOrbitalSimApp:
         return E
 
     def binary_positions(self, time_years):
-        """Barycentric positions of both stars at time t (years).
-        Relative orbit solved in its own plane, inclined by rotation about
-        the x axis, then split by mass fractions:
-            r_orange = -(m_wd / M_tot) * r_rel
-            r_wd     = +(m_orange / M_tot) * r_rel
-        t = 0 is periastron (M = 0)."""
+        """Barycentric positions of both stars; t = 0 is periastron."""
         M = 2.0 * np.pi * time_years / self.period_wd_yr
         E = self.solve_kepler(M, self.e_wd)
 
@@ -232,8 +284,7 @@ class AnimatedOrbitalSimApp:
                 f_wd * x3, f_wd * y3, f_wd * z3)
 
     def binary_velocity(self, time_years, body="orange"):
-        """Barycentric velocity by central finite difference (error O(h^2);
-        the old forward difference was O(h))."""
+        """Barycentric velocity, central finite difference O(h^2)."""
         h = 1e-4
         p1 = self.binary_positions(time_years - h)
         p2 = self.binary_positions(time_years + h)
@@ -243,7 +294,6 @@ class AnimatedOrbitalSimApp:
                 (p2[i + 2] - p1[i + 2]) / (2 * h))
 
     def planet_acceleration(self, px, py, pz, stars):
-        G = 4.0 * np.pi ** 2
         x_o, y_o, z_o, x_w, y_w, z_w = stars
 
         dx1, dy1, dz1 = px - x_o, py - y_o, pz - z_o
@@ -252,17 +302,16 @@ class AnimatedOrbitalSimApp:
         dx2, dy2, dz2 = px - x_w, py - y_w, pz - z_w
         r2 = np.sqrt(dx2 ** 2 + dy2 ** 2 + dz2 ** 2)
 
-        ax = -G * self.m_orange * dx1 / r1 ** 3 - G * self.m_wd * dx2 / r2 ** 3
-        ay = -G * self.m_orange * dy1 / r1 ** 3 - G * self.m_wd * dy2 / r2 ** 3
-        az = -G * self.m_orange * dz1 / r1 ** 3 - G * self.m_wd * dz2 / r2 ** 3
+        ax = (-G_SIM * self.m_orange * dx1 / r1 ** 3
+              - G_SIM * self.m_wd * dx2 / r2 ** 3)
+        ay = (-G_SIM * self.m_orange * dy1 / r1 ** 3
+              - G_SIM * self.m_wd * dy2 / r2 ** 3)
+        az = (-G_SIM * self.m_orange * dz1 / r1 ** 3
+              - G_SIM * self.m_wd * dz2 / r2 ** 3)
         return ax, ay, az
 
     def integrate_planet_step(self, t, dt):
-        """One leapfrog KDK step from t to t+dt.
-        First kick uses star positions at t, second kick uses star positions
-        at t+dt. Using one star snapshot for both kicks (as the old version
-        did) silently degrades the method to first order in the binary's
-        motion."""
+        """Leapfrog KDK; kicks use star positions at t and t+dt."""
         stars0 = self.binary_positions(t)
         ax, ay, az = self.planet_acceleration(self.px, self.py, self.pz, stars0)
 
@@ -282,9 +331,7 @@ class AnimatedOrbitalSimApp:
         self.vz += 0.5 * az * dt
 
     def advance(self, span_years):
-        """Advance the simulation by span_years using the fixed physics dt.
-        Warp/fast-forward only change how much time this covers, never the
-        step size, so accuracy is warp-independent."""
+        """Advance by span_years at fixed dt; warp never changes step size."""
         n = max(1, int(round(span_years / self.dt)))
         h = span_years / n
         for _ in range(n):
@@ -293,10 +340,7 @@ class AnimatedOrbitalSimApp:
 
     def osculating_elements(self):
         """Planet's instantaneous Keplerian elements relative to the Orange
-        dwarf. This is the perturbation diagnostic: for an unperturbed
-        two-body orbit a_osc and e_osc are exactly constant, so any drift or
-        oscillation here is the White dwarf's doing. Expect e_osc jumps of
-        ~2e-4 per periastron passage at the default geometry."""
+        dwarf; constant for two bodies, so drift here = WD perturbation."""
         stars = self.binary_positions(self.time_step)
         vo = self.binary_velocity(self.time_step, "orange")
 
@@ -304,7 +348,7 @@ class AnimatedOrbitalSimApp:
                       self.pz - stars[2]])
         v = np.array([self.vx - vo[0], self.vy - vo[1], self.vz - vo[2]])
 
-        mu = 4.0 * np.pi ** 2 * self.m_orange
+        mu = G_SIM * self.m_orange
         rn = np.linalg.norm(r)
         energy = 0.5 * np.dot(v, v) - mu / rn
         a_osc = -mu / (2.0 * energy) if energy < 0 else float("inf")
@@ -315,11 +359,110 @@ class AnimatedOrbitalSimApp:
         i_osc = np.degrees(np.arccos(np.clip(h[2] / np.linalg.norm(h),
                                              -1.0, 1.0)))
 
-        # Binary separation, to correlate kicks with periastron passages
         sep = np.sqrt((stars[3] - stars[0]) ** 2 +
                       (stars[4] - stars[1]) ** 2 +
                       (stars[5] - stars[2]) ** 2)
         return a_osc, e_osc, i_osc, rn, sep
+
+    # ------------------------------------------------- Planet environment
+
+    def compute_environment(self):
+        """All four v3 indicators, strictly physical, per current state."""
+        stars = self.binary_positions(self.time_step)
+
+        # Distances: planet to host, planet to WD, star-star separation
+        r_o = np.sqrt((self.px - stars[0]) ** 2 + (self.py - stars[1]) ** 2 +
+                      (self.pz - stars[2]) ** 2)
+        r_w = np.sqrt((self.px - stars[3]) ** 2 + (self.py - stars[4]) ** 2 +
+                      (self.pz - stars[5]) ** 2)
+        sep = np.sqrt((stars[3] - stars[0]) ** 2 +
+                      (stars[4] - stars[1]) ** 2 +
+                      (stars[5] - stars[2]) ** 2)
+
+        # ---- 1. Tidal forcing (units: lunar tide on Earth) ----
+        tide_host = 2.0 * G_SIM * self.m_orange / r_o ** 3 / TIDE_MOON
+        tide_wd = 2.0 * G_SIM * self.m_wd / r_w ** 3 / TIDE_MOON
+
+        # ---- 2. UV flux (Earth UV units; band 100-400 nm) ----
+        # Precomputed at Apply: self.uv_lum_host / self.uv_lum_wd are each
+        # star's UV output relative to the Sun's UV output.
+        uv_host = self.uv_lum_host / r_o ** 2
+        uv_wd = self.uv_lum_wd / r_w ** 2
+        uv_total = uv_host + uv_wd
+        uv_wd_share = uv_wd / uv_total * 100 if uv_total > 0 else 0
+
+        # ---- 3. Magnetic storm indicator ----
+        # Host wind ram pressure scales as 1/r^2 (Earth value at 1 AU for a
+        # solar-strength wind). Magnetopause standoff ~ P^(-1/6), Earth
+        # standoff = 10 R_E.
+        p_wind = (1.0 / r_o) ** 2
+        standoff = 10.0 * p_wind ** (-1.0 / 6.0)
+        if standoff > 9.0:
+            mag_status, mag_tag = "QUIET", "quiet"
+        elif standoff > 7.0:
+            mag_status, mag_tag = "ELEVATED", "elevated"
+        elif standoff > 5.0:
+            mag_status, mag_tag = "ACTIVE", "active"
+        else:
+            mag_status, mag_tag = "SEVERE", "severe"
+
+        # WD Bondi-Hoyle accretion of the host wind -> X-ray luminosity.
+        # Captured fraction = (G*M_wd / (sep * v_rel^2))^2 of the wind;
+        # v_rel^2 = wind speed^2 + binary orbital speed^2 (vis-viva).
+        v_orb2 = G_SIM * (self.m_orange + self.m_wd) * (2.0 / sep
+                                                        - 1.0 / self.a_wd)
+        v_rel2 = V_WIND_AU_YR ** 2 + v_orb2
+        f_capture = (G_SIM * self.m_wd / (sep * v_rel2)) ** 2
+        mdot_acc = MDOT_WIND * f_capture
+        l_acc = (G_SIM * self.m_wd * mdot_acc
+                 / (self.r_wd_au) * LUM_UNIT_LSUN)   # in L_sun
+
+        # ---- 4. Climate phase (bolometric instellation, Earth units) ----
+        s_now = self.L_orange / r_o ** 2 + self.L_wd / r_w ** 2
+        a_osc, e_osc, _, _, _ = self.osculating_elements()
+        e_c = min(e_osc, 0.99)
+        s_avg = (self.L_orange / (a_osc ** 2 * np.sqrt(1.0 - e_c ** 2))
+                 if np.isfinite(a_osc) else s_now)
+        t_eq = 278.5 * (s_now * 0.7) ** 0.25    # albedo 0.3
+
+        if s_now >= 1.06:
+            cli_status, cli_tag = "RUNAWAY", "severe"
+        elif s_now >= 0.90:
+            cli_status, cli_tag = "HOT", "active"
+        elif s_now >= 0.42:
+            cli_status, cli_tag = "TEMPERATE", "quiet"
+        elif s_now >= 0.32:
+            cli_status, cli_tag = "COLD", "elevated"
+        else:
+            cli_status, cli_tag = "SNOWBALL", "severe"
+
+        return {
+            "tide_host": tide_host, "tide_wd": tide_wd,
+            "uv_total": uv_total, "uv_wd_share": uv_wd_share,
+            "standoff": standoff, "mag_status": mag_status,
+            "mag_tag": mag_tag, "l_acc": l_acc,
+            "s_now": s_now, "s_avg": s_avg, "t_eq": t_eq,
+            "cli_status": cli_status, "cli_tag": cli_tag,
+        }
+
+    def update_env_display(self):
+        env = self.compute_environment()
+        self.env_text.delete("1.0", tk.END)
+        self.env_text.insert(tk.END, (
+            f"Tide (host): {env['tide_host']:.3f} lunar\n"
+            f"Tide (WD)  : {env['tide_wd']:.2e} lunar\n"
+            f"UV flux    : {env['uv_total']:.3f} x Earth\n"
+            f"  WD share : {env['uv_wd_share']:.2f} %\n"
+            f"Magnetopause: {env['standoff']:.1f} R⊕\n"
+            f"Storm level: "))
+        self.env_text.insert(tk.END, env["mag_status"], env["mag_tag"])
+        self.env_text.insert(tk.END, (
+            f"\nWD accr. Lx: {env['l_acc']:.2e} L☉\n"
+            f"Instellation: {env['s_now']:.4f} S⊕\n"
+            f"  orbit avg : {env['s_avg']:.4f} S⊕\n"
+            f"T_eq (A=0.3): {env['t_eq']:.1f} K\n"
+            f"Climate    : "))
+        self.env_text.insert(tk.END, env["cli_status"], env["cli_tag"])
 
     # ------------------------------------------------------ Time controls
 
@@ -334,7 +477,6 @@ class AnimatedOrbitalSimApp:
         self.ff_remaining = fraction * self.period_wd_yr
         self.ff_in_progress = True
         self.ff_was_running = self.is_running
-        # Pause the animation so frames don't double-advance during FF
         if self.is_running:
             self.is_running = False
             if self.animation_id:
@@ -342,7 +484,7 @@ class AnimatedOrbitalSimApp:
         self.fast_forward_step()
 
     def fast_forward_step(self):
-        chunk = min(2000 * self.dt, self.ff_remaining)  # ~1 yr per UI tick
+        chunk = min(2000 * self.dt, self.ff_remaining)
         self.advance(chunk)
         self.ff_remaining -= chunk
         if self.ff_remaining > 1e-9:
@@ -350,6 +492,7 @@ class AnimatedOrbitalSimApp:
         else:
             self.ff_in_progress = False
             self.update_stats_label()
+            self.update_env_display()
             self.render_frame()
             if self.ff_was_running:
                 self.is_running = True
@@ -357,10 +500,7 @@ class AnimatedOrbitalSimApp:
                 self.animate_loop()
 
     def next_periastron(self):
-        """Integrate the planet forward to the binary's next periastron
-        (t = 0 mod P is periastron). Teleporting the clock without moving
-        the planet would desynchronize the planet's phase from the binary,
-        so this reuses the fast-forward machinery."""
+        """Integrate forward to the binary's next periastron (t = 0 mod P)."""
         if self.ff_in_progress:
             return
         remaining = self.period_wd_yr - np.mod(self.time_step,
@@ -389,8 +529,7 @@ class AnimatedOrbitalSimApp:
     # ------------------------------------------------------ View modes
 
     def toggle_view(self):
-        """Switch rendering frame. Pure coordinate transform at draw time:
-        simulation state, time, and trails are untouched."""
+        """Pure rendering transform; simulation state untouched."""
         if self.view_mode == "barycentric":
             self.view_mode = "orange"
             self.btn_view.config(text="View: Orange Fixed")
@@ -401,7 +540,6 @@ class AnimatedOrbitalSimApp:
         self.render_frame()
 
     def frame_offset(self, stars):
-        """Coordinates to subtract from every rendered point."""
         if self.view_mode == "orange":
             return stars[0], stars[1], stars[2]
         return 0.0, 0.0, 0.0
@@ -429,11 +567,24 @@ class AnimatedOrbitalSimApp:
             self.time_step = 0.0
             self.ff_in_progress = False
 
-            # Stellar properties
-            L_orange = self.m_orange ** 4
-            # Mestel cooling: L ~ M * t^(-7/5). (Earlier version had the
-            # mass dependence inverted: M^-1.)
-            L_wd = 1e-3 * self.m_wd * age_gyr ** -1.4
+            # ---- Stellar properties ----
+            self.L_orange = self.m_orange ** 4
+            # Mestel cooling: L ~ M * t^(-7/5)
+            self.L_wd = 1e-3 * self.m_wd * age_gyr ** -1.4
+
+            # Host effective temperature, main-sequence relation
+            self.T_orange = T_SUN * self.m_orange ** 0.505
+
+            # WD radius (mass-radius relation) and effective temperature
+            self.r_wd_rsun = 0.0127 * (self.m_wd / 0.6) ** (-1.0 / 3.0)
+            self.r_wd_au = self.r_wd_rsun * R_SUN_AU
+            self.T_wd = T_SUN * (self.L_wd / self.r_wd_rsun ** 2) ** 0.25
+
+            # UV luminosities relative to the Sun's UV output
+            self.uv_lum_host = (planck_band_fraction(self.T_orange)
+                                / F_UV_SUN * self.L_orange)
+            self.uv_lum_wd = (planck_band_fraction(self.T_wd)
+                              / F_UV_SUN * self.L_wd)
 
             r_peri_wd = self.a_wd * (1 - self.e_wd)
             r_apa_wd = self.a_wd * (1 + self.e_wd)
@@ -442,9 +593,7 @@ class AnimatedOrbitalSimApp:
             self.period_wd_yr = np.sqrt(
                 self.a_wd ** 3 / (self.m_orange + self.m_wd))
 
-            # Holman & Wiegert (1999) S-type critical semi-major axis.
-            # mu is the COMPANION mass fraction: the planet orbits the
-            # Orange dwarf, so mu = m_wd / (m_orange + m_wd).
+            # Holman & Wiegert (1999); mu = companion mass fraction
             mu = self.m_wd / (self.m_orange + self.m_wd)
             a_crit = self.a_wd * (
                 0.464
@@ -459,27 +608,26 @@ class AnimatedOrbitalSimApp:
             kozai_term = 1 - (5 / 3) * np.cos(self.i_wd_rad) ** 2
             e_max_kozai = np.sqrt(kozai_term) if kozai_term > 0 else 0
 
-            # Kozai-Lidov timescale estimate (quadrupole order):
-            # T_K ~ (2/(3*pi)) * P_bin^2/P_p * (M_tot/m_wd) * (1-e_b^2)^(3/2)
             t_kozai = (2.0 / (3.0 * np.pi)
                        * self.period_wd_yr ** 2 / self.period_p_yr
                        * (self.m_orange + self.m_wd) / self.m_wd
                        * (1 - self.e_wd ** 2) ** 1.5)
 
-            # Per-periastron-passage perturbation strength
             tidal_param = (2.0 * self.m_wd / self.m_orange
                            * (self.a_p / r_peri_wd) ** 3)
 
             self.output_text.delete("1.0", tk.END)
             self.output_text.insert(tk.END, (
-                f"Orange L☉  : {L_orange:.4f}\n"
-                f"WD L☉      : {L_wd:.4f}\n"
+                f"Orange L☉ : {self.L_orange:.4f}  "
+                f"T:{self.T_orange:.0f}K\n"
+                f"WD L☉     : {self.L_wd:.4f}  "
+                f"T:{self.T_wd:.0f}K\n"
                 f"Planet Year: {self.period_p_yr * 365.25:.1f} Days\n"
                 f"Binary Year: {self.period_wd_yr:.1f} Years\n"
                 f"WD Closest : {r_peri_wd:.2f} AU\n"
                 f"WD Farthest: {r_apa_wd:.2f} AU\n"
-                f"Stability  : {stability_status}\n"
-                f"(Limit: {a_crit:.2f} AU)\n"
+                f"Stability  : {stability_status}"
+                f" (Lim {a_crit:.2f} AU)\n"
                 f"Max Kozai e: {e_max_kozai:.3f}\n"
                 f"Kozai T    : {t_kozai:.2e} yr\n"
                 f"Tidal Param: {tidal_param:.2e}"
@@ -488,30 +636,30 @@ class AnimatedOrbitalSimApp:
             # ---- Static orbit tracks (one binary period) ----
             times = np.linspace(0, self.period_wd_yr, 2000)
             tr = np.array([self.binary_positions(t) for t in times])
-            self.track_orange = tr[:, 0:3]           # barycentric, orange
-            self.track_wd = tr[:, 3:6]               # barycentric, WD
-            self.track_rel = tr[:, 3:6] - tr[:, 0:3]  # WD relative to orange
+            self.track_orange = tr[:, 0:3]
+            self.track_wd = tr[:, 3:6]
+            self.track_rel = tr[:, 3:6] - tr[:, 0:3]
 
             # ---- Planet initialization (t = 0) ----
             stars0 = self.binary_positions(0.0)
-            G = 4.0 * np.pi ** 2
             self.px = stars0[0] + self.a_p
             self.py = stars0[1]
             self.pz = stars0[2]
 
-            v_circ = np.sqrt(G * self.m_orange / self.a_p)
+            v_circ = np.sqrt(G_SIM * self.m_orange / self.a_p)
             vx_o, vy_o, vz_o = self.binary_velocity(0.0, "orange")
             self.vx = vx_o
             self.vy = vy_o + v_circ
             self.vz = vz_o
 
-            # ---- Reset ALL trails and the clock display ----
+            # ---- Reset trails and clock ----
             self.planet_history = []
             self.orange_history = []
             self.wd_history = []
             self.year_label.config(text="Simulation Years : 0")
 
             self.force_plot_redraw()
+            self.update_env_display()
             self.render_frame()
 
         except ValueError as e:
@@ -531,7 +679,6 @@ class AnimatedOrbitalSimApp:
         self.update_axes_limits()
 
         if self.view_mode == "barycentric":
-            # Barycenter is a fixed point here
             self.ax.scatter(0, 0, 0, color="yellow", marker="+", s=350,
                             linewidths=3, label="Barycenter")
             self.ax.plot(self.track_orange[:, 0], self.track_orange[:, 1],
@@ -542,8 +689,6 @@ class AnimatedOrbitalSimApp:
                          self.track_wd[:, 2], color="white", linestyle=":",
                          linewidth=1.5, label="White Dwarf Orbit")
         else:
-            # Orange fixed at origin; WD relative orbit is a closed static
-            # ellipse; barycenter now moves, drawn as a dynamic marker below
             self.ax.plot(self.track_rel[:, 0], self.track_rel[:, 1],
                          self.track_rel[:, 2], color="white", linestyle=":",
                          linewidth=1.5, label="WD Orbit (rel. to Orange)")
@@ -553,7 +698,6 @@ class AnimatedOrbitalSimApp:
         self.ax.set_zlabel("Z (AU)")
         self.ax.view_init(elev=25, azim=40)
 
-        # Dynamic objects
         self.bary_dot, = self.ax.plot([], [], [], '+', color='yellow',
                                       markersize=14, markeredgewidth=2)
         self.orange_dot, = self.ax.plot([], [], [], 'o', color='#f97316',
@@ -576,8 +720,8 @@ class AnimatedOrbitalSimApp:
         self.canvas.draw_idle()
 
     def record_history(self, stars):
-        """Append synchronized samples for all three bodies (same frame, same
-        index) so trails can be re-based into any view frame later."""
+        """Synchronized samples for all three bodies (same frame, same index)
+        so trails can be re-based into any view frame."""
         self.planet_history.append((self.px, self.py, self.pz))
         self.orange_history.append(stars[0:3])
         self.wd_history.append(stars[3:6])
@@ -607,12 +751,11 @@ class AnimatedOrbitalSimApp:
             w = np.array(self.wd_history)
 
             if self.view_mode == "orange":
-                # Re-base every stored sample onto the orange dwarf's
-                # position AT THAT SAMPLE'S TIME - this is what makes the
-                # trail correct in the moving-origin frame.
+                # Re-base each stored sample onto the orange dwarf's position
+                # AT THAT SAMPLE'S TIME
                 p = p - o
                 w = w - o
-                o = o - o  # orange trail collapses to the origin
+                o = o - o
 
             self.planet_trail.set_data_3d(p[:, 0], p[:, 1], p[:, 2])
             self.orange_trail.set_data_3d(o[:, 0], o[:, 1], o[:, 2])
@@ -631,8 +774,8 @@ class AnimatedOrbitalSimApp:
             f"Osc. a           : {a_osc:.6f} AU\n"
             f"Osc. e           : {e_osc:.6f}\n"
             f"Osc. i           : {i_osc:.4f}°\n"
-            f"Warp             : {self.speed_slider.get()}\n"
-            f"View             : {self.view_mode}"
+            f"Warp             : {self.speed_slider.get()}"
+            f"   View: {self.view_mode}"
         ))
 
     # ------------------------------------------------------ Animation
@@ -648,6 +791,7 @@ class AnimatedOrbitalSimApp:
         self.record_history(stars)
 
         self.update_stats_label()
+        self.update_env_display()
         self.render_frame()
         self.animation_id = self.root.after(100, self.animate_loop)
 
