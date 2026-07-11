@@ -8,7 +8,7 @@ class AnimatedOrbitalSimApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Animated Hierarchical Binary Orbital Simulator")
-        self.root.geometry("1150x800")
+        self.root.geometry("1200x990+25+0")
         self.root.configure(bg="#0d1117")
 
         # Animation state variables
@@ -25,10 +25,11 @@ class AnimatedOrbitalSimApp:
         self.style.map("TButton", background=[("active", "#30363d")])
 
         # Layout Frames
-        self.left_frame = ttk.Frame(root, padding=20)
+        self.left_frame = ttk.Frame(root, padding=0, width=280)
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
+        self.left_frame.pack_propagate(False)
 
-        self.right_frame = ttk.Frame(root, padding=10)
+        self.right_frame = ttk.Frame(root, padding=1)
         self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         self.setup_inputs()
@@ -50,6 +51,14 @@ class AnimatedOrbitalSimApp:
             entry.pack(anchor="w", pady=(0, 8))
             return entry
 
+        self.year_label = ttk.Label(
+            self.left_frame,
+            text="Planet Year: 0.00",
+            font=("Arial", 11, "bold"),
+            foreground="#58a6ff"
+        )
+        self.year_label.pack(fill=tk.X, pady=10)
+
         # Setup input boxes
         self.m_orange_entry = create_input("Orange Dwarf Mass (M☉):", 0.85)
         self.m_wd_entry = create_input("White Dwarf Mass (M☉):", 0.70)
@@ -58,6 +67,7 @@ class AnimatedOrbitalSimApp:
         self.e_wd_entry = create_input("White Dwarf Eccentricity (0-0.99):", 0.875)
         self.i_wd_entry = create_input("White Dwarf Inclination (Degrees):", 75)
         self.a_p_entry = create_input("Planet Semi-Major Axis (AU):", 0.725)
+        self.zoom_factor = 0.15
 
         # Update Parameters Button
         self.btn_calc = ttk.Button(self.left_frame, text="Apply Changes", command=self.update_parameters)
@@ -75,8 +85,20 @@ class AnimatedOrbitalSimApp:
         lbl_speed.pack(anchor="w", pady=(5, 2))
         self.speed_slider = tk.Scale(self.left_frame, from_=1, to=20, orient=tk.HORIZONTAL, bg="#161b22", fg="white",
                                      highlightthickness=0)
-        self.speed_slider.set(5)
+        self.speed_slider.set(1)
         self.speed_slider.pack(fill=tk.X, pady=(0, 15))
+
+        ttk.Button(
+            self.left_frame,
+            text="Zoom In",
+            command=lambda: self.change_zoom(0.8)
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            self.left_frame,
+            text="Zoom Out",
+            command=lambda: self.change_zoom(1.25)
+        ).pack(fill=tk.X, pady=2)
 
         # Metrics Panel
         self.output_lbl = ttk.Label(self.left_frame, text="Calculated Metrics:", font=("Arial", 11, "bold"),
@@ -97,12 +119,24 @@ class AnimatedOrbitalSimApp:
         self.output_text.pack(fill=tk.BOTH, expand=True)
 
     def setup_plot(self):
-        self.fig = plt.figure(figsize=(7, 7), facecolor='#0d1117')
+        self.fig = plt.figure(figsize=(20, 20), facecolor='#0d1117')
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.set_facecolor('#0d1117')
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.right_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def change_zoom(self, factor):
+        self.zoom_factor *= factor
+        self.update_axes_limits()
+        self.canvas.draw_idle()
+
+    def update_axes_limits(self):
+        max_range = self.a_wd * (1 + self.e_wd) * self.zoom_factor
+
+        self.ax.set_xlim(-max_range, max_range)
+        self.ax.set_ylim(-max_range, max_range)
+        self.ax.set_zlim(-max_range, max_range)
 
     def update_parameters(self):
         try:
@@ -206,6 +240,7 @@ class AnimatedOrbitalSimApp:
         self.ax.yaxis.label.set_color('#8b949e')
         self.ax.zaxis.label.set_color('#8b949e')
         self.ax.tick_params(colors='#8b949e')
+        self.update_axes_limits()
 
         # Static background helper paths
         self.ax.plot(self.track_x_wd, self.track_y_wd, self.track_z_wd, color='#8000FF', linestyle=':',
@@ -236,16 +271,58 @@ class AnimatedOrbitalSimApp:
         if not self.is_running:
             return
 
-        # Advance running configuration step speed
         speed_modifier = self.speed_slider.get() * 0.02
         self.time_step += speed_modifier
 
-        # 1. Evaluate Planet Position (Fast-moving inner circle)
-        # Angular speed scales inversely with orbital year period
-        theta_p = (self.time_step / self.period_p_yr) % (2 * np.pi)
+        # Planet position
+        theta_wd = 2*np.pi * self.time_step / self.period_wd_yr
+        # White dwarf position
+        theta_p  = 2*np.pi * self.time_step / self.period_p_yr
+
         xp = self.a_p * np.cos(theta_p) * self.visual_scale
         yp = self.a_p * np.sin(theta_p) * self.visual_scale
         zp = 0
+
+        r_wd = (
+                self.a_wd * (1 - self.e_wd ** 2)
+                / (1 + self.e_wd * np.cos(theta_wd))
+        )
+
+        xw = r_wd * np.cos(theta_wd)
+
+        y_flat = r_wd * np.sin(theta_wd)
+
+        yw = y_flat * np.cos(self.i_wd_rad)
+        zw = y_flat * np.sin(self.i_wd_rad)
+
+        planet_year = self.time_step
+        planet_orbits = self.time_step / self.period_p_yr
+        wd_orbits = self.time_step / self.period_wd_yr
+
+        self.year_label.config(
+            text=(
+                f"System Age: {planet_year:.1f} yr\n"
+                f"Planet Orbits: {planet_orbits:.1f}\n"
+                f"WD Orbits: {wd_orbits:.4f}\n"
+                f"Warp: {self.speed_slider.get()}"
+            )
+        )
+
+        # Update planet marker
+        self.planet_dot.set_data_3d([xp], [yp], [zp])
+
+        # Update white dwarf marker
+        self.wd_dot.set_data_3d([xw], [yw], [zw])
+
+        # Refresh canvas
+        self.canvas.draw_idle()
+        #print(xw, yw, zw, speed_modifier)
+
+        # Schedule next frame
+        self.animation_id = self.root.after(
+            30,
+            self.animate_loop
+        )
 
 
 

@@ -24,6 +24,7 @@ class AnimatedOrbitalSimApp:
         self.style.configure("TButton", background="#21262d", foreground="white", font=("Arial", 10, "bold"))
         self.style.map("TButton", background=[("active", "#30363d")])
 
+
         # Layout Frames
         self.left_frame = ttk.Frame(root, padding=0, width=280)
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
@@ -32,6 +33,9 @@ class AnimatedOrbitalSimApp:
         self.right_frame = ttk.Frame(root, padding=1)
         self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
+        self.control_frame = ttk.Frame( self.right_frame )
+        self.control_frame.pack( fill=tk.X )
+
         self.ff_years_entry = ttk.Entry( self.left_frame, width=10 )
         self.ff_years_entry.insert(0,"0.25")
         self.ff_years_entry.pack(fill=tk.X)
@@ -39,122 +43,117 @@ class AnimatedOrbitalSimApp:
         self.setup_inputs()
         self.setup_plot()
 
+
         # Start core calculation and kick off animation loop
         self.update_parameters()
         self.animate_loop()
 
     def setup_inputs(self):
-        title = ttk.Label(self.left_frame, text="System Parameters", font=("Arial", 14, "bold"), foreground="#58a6ff")
-        title.pack(pady=(0, 15), anchor="w")
+
+        title = ttk.Label(
+            self.left_frame,
+            text="System Parameters",
+            font=("Arial", 14, "bold"),
+            foreground="#58a6ff"
+        )
+        title.pack(anchor="w", pady=(5, 10))
 
         def create_input(label_text, default_val):
-            lbl = ttk.Label(self.left_frame, text=label_text)
-            lbl.pack(anchor="w", pady=(2, 1))
-            entry = ttk.Entry(self.left_frame, width=25)
-            entry.insert(0, str(default_val))
-            entry.pack(anchor="w", pady=(0, 8))
-            return entry
+            ttk.Label(
+                self.left_frame,
+                text=label_text
+            ).pack(anchor="w")
+
+            e = ttk.Entry(
+                self.left_frame,
+                width=25
+            )
+
+            e.insert(0, str(default_val))
+            e.pack(fill=tk.X, pady=(0, 6))
+
+            return e
 
         self.year_label = ttk.Label(
             self.left_frame,
-            text="Planet Year: 0.00",
+            text="Simulation Years : 0",
+            font=("Consolas", 11, "bold"),
+            foreground="#58a6ff",
+            justify=tk.LEFT
+        )
+
+        self.year_label.pack(
+            fill=tk.X,
+            pady=(0, 10)
+        )
+
+        self.m_orange_entry = create_input(
+            "Orange Dwarf Mass (M☉):", 0.85
+        )
+
+        self.m_wd_entry = create_input(
+            "White Dwarf Mass (M☉):", 0.70
+        )
+
+        self.age_entry = create_input(
+            "White Dwarf Cooling Age (Gyr):", 0.1
+        )
+
+        self.a_wd_entry = create_input(
+            "White Dwarf Semi-Major Axis (AU):", 115
+        )
+
+        self.e_wd_entry = create_input(
+            "White Dwarf Eccentricity:", 0.875
+        )
+
+        self.i_wd_entry = create_input(
+            "White Dwarf Inclination:", 75
+        )
+
+        self.a_p_entry = create_input(
+            "Planet Semi-Major Axis (AU):", 0.725
+        )
+
+        self.btn_calc = ttk.Button(
+            self.left_frame,
+            text="Apply Changes",
+            command=self.update_parameters
+        )
+
+        self.btn_calc.pack(
+            fill=tk.X,
+            pady=(8, 12)
+        )
+
+        ttk.Label(
+            self.left_frame,
+            text="Calculated Metrics",
             font=("Arial", 11, "bold"),
             foreground="#58a6ff"
-        )
-        self.year_label.pack(fill=tk.X, pady=10)
-
-        # Setup input boxes
-        self.m_orange_entry = create_input("Orange Dwarf Mass (M☉):", 0.85)
-        self.m_wd_entry = create_input("White Dwarf Mass (M☉):", 0.70)
-        self.age_entry = create_input("White Dwarf Cooling Age (Gyr):", 0.1)
-        self.a_wd_entry = create_input("White Dwarf Semi-Major Axis (AU):", 115)
-        self.e_wd_entry = create_input("White Dwarf Eccentricity (0-0.99):", 0.875)
-        self.i_wd_entry = create_input("White Dwarf Inclination (Degrees):", 75)
-        self.a_p_entry = create_input("Planet Semi-Major Axis (AU):", 0.725)
-        self.zoom_factor = 0.15
-
-        # Update Parameters Button
-        self.btn_calc = ttk.Button(self.left_frame, text="Apply Changes", command=self.update_parameters)
-        self.btn_calc.pack(fill=tk.X, pady=10)
-
-        # ANIMATION INTERACTIVE CONTROLS
-        anim_title = ttk.Label(self.left_frame, text="Animation Engine", font=("Arial", 11, "bold"),
-                               foreground="#58a6ff")
-        anim_title.pack(anchor="w", pady=(10, 5))
-
-        self.btn_toggle = ttk.Button(self.left_frame, text="Pause Simulation", command=self.toggle_animation)
-        self.btn_toggle.pack(fill=tk.X, pady=5)
-
-        lbl_speed = ttk.Label(self.left_frame, text="Simulation Warp Speed:")
-        lbl_speed.pack(anchor="w", pady=(5, 2))
-        self.speed_slider = tk.Scale(self.left_frame, from_=1, to=20, orient=tk.HORIZONTAL, bg="#161b22", fg="white",
-                                     highlightthickness=0)
-        self.speed_slider.set(1)
-        self.speed_slider.pack(fill=tk.X, pady=(0, 15))
-
-        ttk.Button(
-            self.left_frame,
-            text="Fast Forward",
-            command=self.fast_forward
-        ).pack(fill=tk.X)
-
-        ttk.Button(
-            self.left_frame,
-            text="Zoom In",
-            command=lambda: self.change_zoom(0.8)
-        ).pack(fill=tk.X, pady=2)
-
-        ttk.Button(
-            self.left_frame,
-            text="Zoom Out",
-            command=lambda: self.change_zoom(1.25)
-        ).pack(fill=tk.X, pady=2)
-
-        ttk.Button(
-            self.left_frame,
-            text="Next Periastron",
-            command=self.next_periastron
-        )
-
-        # Metrics Panel
-        self.output_lbl = ttk.Label(self.left_frame, text="Calculated Metrics:", font=("Arial", 11, "bold"),
-                                    foreground="#58a6ff")
-        self.output_lbl.pack(anchor="w", pady=(5, 2))
+        ).pack(anchor="w")
 
         self.output_text = tk.Text(
             self.left_frame,
-            width=32,
-            height=10,
+            height=12,
             bg="#161b22",
             fg="#c9d1d9",
             font=("Consolas", 10),
-            bd=0,
-            padx=5,
-            pady=5
-        )
-        self.output_text.pack(fill=tk.BOTH, expand=True)
-
-    def fast_forward(self,remaining):
-
-        binary_years = float(
-            self.ff_years_entry.get()
+            bd=0
         )
 
-        target = (
-                binary_years
-                * self.period_wd_yr
+        self.output_text.pack(
+            fill=tk.BOTH,
+            expand=True
         )
 
-        steps = int(
-            target /
-            self.dt
-        )
+        self.zoom_factor = 0.15
 
-        for _ in range(steps):
-            theta_wd, _ = self.true_anomaly(
-                self.time_step
-            )
+    def fast_forward_step(self):
 
+        chunk = min(2000,self.ff_remaining)
+
+        for _ in range(chunk):
             (
                 x_orange,
                 y_orange,
@@ -162,9 +161,7 @@ class AnimatedOrbitalSimApp:
                 x_wd,
                 y_wd,
                 z_wd
-            ) = self.binary_positions(
-                self.time_step
-            )
+            ) = self.binary_positions(self.time_step)
 
             self.integrate_planet(
                 x_orange,
@@ -172,10 +169,58 @@ class AnimatedOrbitalSimApp:
                 z_orange,
                 x_wd,
                 y_wd,
-                z_wd
+                z_wd,
+                self.dt
             )
 
             self.time_step += self.dt
+
+        self.ff_remaining -= chunk
+
+        if self.ff_remaining > 0:
+
+            self.root.after(
+                1,
+                self.fast_forward_step
+            )
+
+        else:
+
+            self.force_redraw_now()
+
+    def fast_forward(self):
+
+        binary_fraction = float(
+            self.ff_years_entry.get()
+        )
+
+        self.ff_remaining = int(
+            binary_fraction
+            * self.period_wd_yr
+            / self.dt
+        )
+
+        self.fast_forward_step()
+
+    def orange_velocity(self):
+
+        dtv = 0.001
+
+        (
+            x1, y1, z1,
+            _, _, _
+        ) = self.binary_positions(0)
+
+        (
+            x2, y2, z2,
+            _, _, _
+        ) = self.binary_positions(dtv)
+
+        return (
+            (x2 - x1) / dtv,
+            (y2 - y1) / dtv,
+            (z2 - z1) / dtv
+        )
 
     def next_periastron(self):
 
@@ -192,20 +237,168 @@ class AnimatedOrbitalSimApp:
         )
 
     def setup_plot(self):
-        self.fig = plt.figure(figsize=(8, 8), facecolor='#0d1117')
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_facecolor('#0d1117')
-        self.ax.scatter(
-            14.4,
-            0,
-            0,
-            color='red',
-            s=80,
-            label='WD Periastron'
+
+        self.control_frame = ttk.Frame(self.right_frame)
+
+        self.control_frame.pack(fill=tk.X,padx=4,pady=4)
+
+        self.row1 = ttk.Frame(self.control_frame)
+        self.row1.pack(fill=tk.X)
+
+        self.row2 = ttk.Frame(self.control_frame)
+        self.row2.pack(fill=tk.X)
+
+        # ---------- Row 1 ----------
+
+        self.btn_toggle = ttk.Button(
+            self.row1,
+            text="Pause Simulation",
+            command=self.toggle_animation
         )
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.right_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.btn_toggle.pack(
+            side=tk.LEFT,
+            expand=True,
+            fill=tk.X,
+            padx=2
+        )
+
+        ttk.Button(
+            self.row1,
+            text="Fast Forward",
+            command=self.fast_forward
+        ).pack(
+            side=tk.LEFT,
+            expand=True,
+            fill=tk.X,
+            padx=2
+        )
+
+        ttk.Button(
+            self.row1,
+            text="Next Periastron",
+            command=self.next_periastron
+        ).pack(
+            side=tk.LEFT,
+            expand=True,
+            fill=tk.X,
+            padx=2
+        )
+
+        # ---------- Row 2 ----------
+        # ---------- Row 2 ----------
+
+        ttk.Button(
+            self.row2,
+            text="Zoom In",
+            command=lambda: self.change_zoom(0.8)
+        ).pack(
+            side=tk.LEFT,
+            padx=2
+        )
+
+        ttk.Button(
+            self.row2,
+            text="Zoom Out",
+            command=lambda: self.change_zoom(1.25)
+        ).pack(
+            side=tk.LEFT,
+            padx=2
+        )
+
+        ttk.Label(
+            self.row2,
+            text="Warp:"
+        ).pack(
+            side=tk.LEFT,
+            padx=(10, 2)
+        )
+
+        self.speed_slider = tk.Scale(
+            self.row2,
+            from_=1,
+            to=20,
+            orient=tk.HORIZONTAL,
+            bg="#161b22",
+            fg="white",
+            highlightthickness=0,
+            length=180
+        )
+
+        self.speed_slider.set(1)
+
+        self.speed_slider.pack(
+            side=tk.LEFT,
+            padx=(0, 10)
+        )
+
+        ttk.Label(
+            self.row2,
+            text="FF WD Orbits:"
+        ).pack(
+            side=tk.LEFT,
+            padx=(5, 2)
+        )
+
+        self.ff_years_entry = ttk.Entry(
+            self.row2,
+            width=8
+        )
+
+        self.ff_years_entry.insert(
+            0,
+            "0.25"
+        )
+
+        self.ff_years_entry.pack(
+            side=tk.LEFT
+        )
+
+        ttk.Label(
+            self.row2,
+            text="FF WD Orbits:"
+        ).pack(
+            side=tk.LEFT,
+            padx=(10, 2)
+        )
+
+        self.ff_years_entry = ttk.Entry(
+            self.row2,
+            width=8
+        )
+
+        self.ff_years_entry.insert(
+            0,
+            "0.25"
+        )
+
+        self.ff_years_entry.pack(
+            side=tk.LEFT
+        )
+
+        # ---------- Plot ----------
+
+        self.fig = plt.figure(
+            figsize=(8, 8),
+            facecolor="#0d1117"
+        )
+
+        self.ax = self.fig.add_subplot(
+            111,
+            projection="3d"
+        )
+
+        self.ax.set_facecolor("#0d1117")
+
+        self.canvas = FigureCanvasTkAgg(
+            self.fig,
+            master=self.right_frame
+        )
+
+        self.canvas.get_tk_widget().pack(
+            fill=tk.BOTH,
+            expand=True
+        )
 
     def change_zoom(self, factor):
         self.zoom_factor *= factor
@@ -219,70 +412,33 @@ class AnimatedOrbitalSimApp:
         self.ax.set_ylim(-max_range, max_range)
         self.ax.set_zlim(-max_range, max_range)
 
-    def binary_positions(self, t_years):
+    def binary_positions(self, time_years):
 
-        M = (
-                2 * np.pi *
-                t_years /
-                self.period_wd_yr
-        )
-
+        M = (2 * np.pi * time_years / self.period_wd_yr)
         M = np.mod(M, 2 * np.pi)
 
         E = M
+        for _ in range(10):
+            E -= (E-self.e_wd * np.sin(E)-M )/(1-self.e_wd * np.cos(E))
 
-        for _ in range(8):
-            E -= (
-                         E -
-                         self.e_wd * np.sin(E) -
-                         M
-                 ) / (
-                         1 -
-                         self.e_wd * np.cos(E)
-                 )
+        x_rel = self.a_wd * (np.cos(E)-self.e_wd)
+        y_rel = (self.a_wd * np.sqrt(1 - self.e_wd ** 2)* np.sin(E))
 
-        x_rel = self.a_wd * (
-                np.cos(E)
-                - self.e_wd
-        )
+        x3 = x_rel
+        y3 = (y_rel* np.cos(self.i_wd_rad))
+        z3 = (y_rel*np.sin(self.i_wd_rad))
 
-        y_rel = (
-                self.a_wd
-                * np.sqrt(1 - self.e_wd ** 2)
-                * np.sin(E)
-        )
+        f_orange = (self.m_wd /(self.m_orange + self.m_wd))
 
-        x_rel3 = x_rel
+        f_wd = (self.m_orange /(self.m_orange + self.m_wd))
 
-        y_rel3 = (
-                y_rel
-                * np.cos(self.i_wd_rad)
-        )
+        x_orange = -f_orange * x3
+        y_orange = -f_orange * y3
+        z_orange = -f_orange * z3
 
-        z_rel3 = (
-                y_rel
-                * np.sin(self.i_wd_rad)
-        )
-
-        f_orange = (
-                self.m_wd /
-                (self.m_orange + self.m_wd)
-        )
-
-        f_wd = (
-                self.m_orange /
-                (self.m_orange + self.m_wd)
-        )
-
-        x_orange = -f_orange * x_rel3
-        y_orange = -f_orange * y_rel3
-        z_orange = -f_orange * z_rel3
-
-        x_wd = f_wd * x_rel3
-        y_wd = f_wd * y_rel3
-        z_wd = f_wd * z_rel3
-
-        print( "M=", M, "E=", E )
+        x_wd = f_wd * x3
+        y_wd = f_wd * y3
+        z_wd = f_wd * z3
 
         return (
             x_orange,
@@ -333,7 +489,8 @@ class AnimatedOrbitalSimApp:
     def integrate_planet(
             self,
             x_orange, y_orange, z_orange,
-            x_wd, y_wd, z_wd
+            x_wd, y_wd, z_wd,
+            dt
     ):
 
         ax, ay, az = self.planet_acceleration(
@@ -343,14 +500,14 @@ class AnimatedOrbitalSimApp:
         )
 
         # half kick
-        self.vx += 0.5 * ax * self.dt
-        self.vy += 0.5 * ay * self.dt
-        self.vz += 0.5 * az * self.dt
+        self.vx += 0.5 * ax * dt
+        self.vy += 0.5 * ay * dt
+        self.vz += 0.5 * az * dt
 
         # drift
-        self.px += self.vx * self.dt
-        self.py += self.vy * self.dt
-        self.pz += self.vz * self.dt
+        self.px += self.vx * dt
+        self.py += self.vy * dt
+        self.pz += self.vz * dt
 
         ax, ay, az = self.planet_acceleration(
             self.px, self.py, self.pz,
@@ -359,9 +516,9 @@ class AnimatedOrbitalSimApp:
         )
 
         # second half kick
-        self.vx += 0.5 * ax * self.dt
-        self.vy += 0.5 * ay * self.dt
-        self.vz += 0.5 * az * self.dt
+        self.vx += 0.5 * ax * dt
+        self.vy += 0.5 * ay * dt
+        self.vz += 0.5 * az * dt
 
     def true_anomaly(self, t_years):
 
@@ -393,7 +550,7 @@ class AnimatedOrbitalSimApp:
 
     def update_parameters(self):
         try:
-
+            self.time_step = 0.0
             self.m_orange = float(self.m_orange_entry.get())
             self.m_wd = float(self.m_wd_entry.get())
             age_gyr = float(self.age_entry.get())
@@ -409,49 +566,21 @@ class AnimatedOrbitalSimApp:
                     "Eccentricity must be between 0 and 0.99"
                 )
 
-            self.i_wd_rad = np.radians(
-                self.i_wd_deg
-            )
+            self.i_wd_rad = np.radians(self.i_wd_deg)
 
-            # ---------------------------------------
             # Stellar properties
-            # ---------------------------------------
-
             L_orange = self.m_orange ** 4
+            L_wd = (1e-3*(self.m_wd ** -1)*(age_gyr ** -1.4))
 
-            L_wd = (
-                    1e-3
-                    * (self.m_wd ** -1)
-                    * (age_gyr ** -1.4)
-            )
+            r_peri_wd = self.a_wd * (1 - self.e_wd)
+            r_apa_wd = self.a_wd * (1 + self.e_wd)
+            mu = (self.m_orange /(self.m_orange + self.m_wd))
 
-            r_peri_wd = self.a_wd * (
-                    1 - self.e_wd
-            )
+            self.period_p_yr = np.sqrt(self.a_p ** 3 /self.m_orange)
 
-            r_apa_wd = self.a_wd * (
-                    1 + self.e_wd
-            )
+            self.period_wd_yr = np.sqrt(self.a_wd ** 3 /(self.m_orange + self.m_wd))
 
-            mu = (
-                    self.m_orange /
-                    (self.m_orange + self.m_wd)
-            )
-
-            self.period_p_yr = np.sqrt(
-                self.a_p ** 3 /
-                self.m_orange
-            )
-
-            self.period_wd_yr = np.sqrt(
-                self.a_wd ** 3 /
-                (self.m_orange + self.m_wd)
-            )
-
-            # ---------------------------------------
             # Stability estimate
-            # ---------------------------------------
-
             a_crit = self.a_wd * (
                     0.464
                     - 0.380 * mu
@@ -467,27 +596,15 @@ class AnimatedOrbitalSimApp:
                 else "UNSTABLE!"
             )
 
-            kozai_term = (
-                    1
-                    - (5 / 3)
-                    * np.cos(self.i_wd_rad) ** 2
-            )
+            kozai_term = (1-(5/3)* np.cos(self.i_wd_rad) ** 2)
 
             if kozai_term > 0:
-                e_max_kozai = np.sqrt(
-                    kozai_term
-                )
+                e_max_kozai = np.sqrt(kozai_term)
             else:
                 e_max_kozai = 0
 
-            # ---------------------------------------
             # Output text
-            # ---------------------------------------
-
-            self.output_text.delete(
-                "1.0",
-                tk.END
-            )
+            self.output_text.delete("1.0", tk.END )
 
             metrics_str = (
                 f"Orange L☉  : {L_orange:.4f}\n"
@@ -501,20 +618,10 @@ class AnimatedOrbitalSimApp:
                 f"Max Kozai e: {e_max_kozai:.3f}"
             )
 
-            self.output_text.insert(
-                tk.END,
-                metrics_str
-            )
+            self.output_text.insert(tk.END, metrics_str)
 
-            # =======================================
             # BARYCENTRIC ORBIT TRACKS
-            # =======================================
-
-            E_grid = np.linspace(
-                0,
-                2 * np.pi,
-                2000
-            )
+            times = np.linspace(0,self.period_wd_yr,2000)
 
             self.track_x_orange = []
             self.track_y_orange = []
@@ -524,68 +631,25 @@ class AnimatedOrbitalSimApp:
             self.track_y_wd = []
             self.track_z_wd = []
 
-            f_orange = (
-                    self.m_wd /
-                    (self.m_orange + self.m_wd)
-            )
+            for t in times:
+                (
+                    xo,
+                    yo,
+                    zo,
+                    xw,
+                    yw,
+                    zw
+                ) = self.binary_positions(t)
 
-            f_wd = (
-                    self.m_orange /
-                    (self.m_orange + self.m_wd)
-            )
+                self.track_x_orange.append(xo)
+                self.track_y_orange.append(yo)
+                self.track_z_orange.append(zo)
 
-            for E in E_grid:
-                x_rel = (
-                        self.a_wd *
-                        (np.cos(E) - self.e_wd)
-                )
+                self.track_x_wd.append(xw)
+                self.track_y_wd.append(yw)
+                self.track_z_wd.append(zw)
 
-                y_rel = (
-                        self.a_wd
-                        * np.sqrt(
-                    1 - self.e_wd ** 2
-                )
-                        * np.sin(E)
-                )
-
-                y3 = (
-                        y_rel *
-                        np.cos(self.i_wd_rad)
-                )
-
-                z3 = (
-                        y_rel *
-                        np.sin(self.i_wd_rad)
-                )
-
-                self.track_x_orange.append(
-                    -f_orange * x_rel
-                )
-
-                self.track_y_orange.append(
-                    -f_orange * y3
-                )
-
-                self.track_z_orange.append(
-                    -f_orange * z3
-                )
-
-                self.track_x_wd.append(
-                    f_wd * x_rel
-                )
-
-                self.track_y_wd.append(
-                    f_wd * y3
-                )
-
-                self.track_z_wd.append(
-                    f_wd * z3
-                )
-
-            # =======================================
             # N-BODY PLANET INITIALIZATION
-            # =======================================
-
             (
                 x_orange0,
                 y_orange0,
@@ -593,31 +657,23 @@ class AnimatedOrbitalSimApp:
                 _,
                 _,
                 _
-            ) = self.binary_positions(
-                0.0
-            )
+            ) = self.binary_positions(0)
 
             G = 4 * np.pi ** 2
-
-            self.px = (
-                    x_orange0
-                    + self.a_p
-            )
+            self.px = (x_orange0 + self.a_p)
 
             self.py = y_orange0
             self.pz = z_orange0
 
-            v_circ = np.sqrt(
-                G *
-                self.m_orange /
-                self.a_p
-            )
+            v_circ = np.sqrt(G *self.m_orange / self.a_p)
+            vx_o, vy_o, vz_o = self.orange_velocity()
 
-            self.vx = 0.0
-            self.vy = v_circ
-            self.vz = 0.0
+            self.vx = vx_o
+            self.vy = vy_o + v_circ
+            self.vz = vz_o
 
             self.dt = 0.0002
+            print(vx_o, vy_o, vz_o)
 
             # reset trail
 
@@ -813,20 +869,30 @@ class AnimatedOrbitalSimApp:
             z_wd
         ) = self.binary_positions(self.time_step)
 
-        # -----------------------------------------
         # Integrate planet
-        # -----------------------------------------
-
-        substeps = 20
-
-        for _ in range(substeps):
-            self.integrate_planet(
+        substeps = 10
+        for i in range(substeps):
+            local_time = (
+                    self.time_step
+                    - speed_modifier
+                    + (i + 1) * speed_modifier / 10
+            )
+            (
                 x_orange,
                 y_orange,
                 z_orange,
                 x_wd,
                 y_wd,
                 z_wd
+            ) = self.binary_positions(local_time)
+            self.integrate_planet(
+                x_orange,
+                y_orange,
+                z_orange,
+                x_wd,
+                y_wd,
+                z_wd,
+                speed_modifier / 10
             )
 
         xp = self.px
@@ -943,15 +1009,13 @@ class AnimatedOrbitalSimApp:
             self.wd_history_y,
             self.wd_history_z
         )
-        print(
-            "t =", self.time_step,
-            "P =", self.period_wd_yr
-        )
+        #print("t =", self.time_step,"P =", self.period_wd_yr)
+
         # Refresh display
         self.canvas.draw_idle()
 
         self.animation_id = self.root.after(
-            30,
+            100,
             self.animate_loop
         )
 
