@@ -784,7 +784,7 @@ class AnimatedOrbitalSimApp:
         if not self.is_running:
             return
 
-        span = self.speed_slider.get() * 0.03  # years per frame
+        span = self.speed_slider.get() * 0.01  # years per frame
         self.advance(span)
 
         stars = self.binary_positions(self.time_step)
