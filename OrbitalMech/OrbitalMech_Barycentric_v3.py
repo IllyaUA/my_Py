@@ -40,7 +40,7 @@ def planck_band_fraction(T, lam1=100e-9, lam2=400e-9, n=400):
     lam = np.linspace(lam1, lam2, n)
     B = (2 * np.pi * h * c ** 2 / lam ** 5
          / (np.exp(h * c / (lam * kB * T)) - 1.0))
-    return np.trapz(B, lam) / (sigma * T ** 4)
+    return np.trapezoid(B, lam) / (sigma * T ** 4)
 
 
 # UV output of the Sun per unit luminosity, the normalization for
@@ -151,12 +151,12 @@ class AnimatedOrbitalSimApp:
         self.year_label.pack(fill=tk.X, pady=(0, 6))
 
         self.m_orange_entry = create_input("Orange Dwarf Mass (M☉):", 0.85)
-        self.m_wd_entry = create_input("White Dwarf Mass (M☉):", 0.70)
+        self.m_wd_entry = create_input("White Dwarf Mass (M☉):", 0.6)
         self.age_entry = create_input("White Dwarf Cooling Age (Gyr):", 0.1)
-        self.a_wd_entry = create_input("White Dwarf Semi-Major Axis (AU):", 115)
-        self.e_wd_entry = create_input("White Dwarf Eccentricity:", 0.875)
+        self.a_wd_entry = create_input("White Dwarf Semi-Major Axis (AU):", 16)
+        self.e_wd_entry = create_input("White Dwarf Eccentricity:", 0.7)
         self.i_wd_entry = create_input("White Dwarf Inclination:", 75)
-        self.a_p_entry = create_input("Planet Semi-Major Axis (AU):", 0.725)
+        self.a_p_entry = create_input("Planet Semi-Major Axis (AU):", 0.55)
 
         self.btn_calc = ttk.Button(self.left_frame, text="Apply Changes",
                                    command=self.update_parameters)
@@ -726,7 +726,7 @@ class AnimatedOrbitalSimApp:
         self.orange_history.append(stars[0:3])
         self.wd_history.append(stars[3:6])
 
-        max_history = 2000
+        max_history = 10000
         if len(self.planet_history) > max_history:
             self.planet_history.pop(0)
             self.orange_history.pop(0)
