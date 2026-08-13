@@ -7,7 +7,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 class AnimatedOrbitalSimApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Animated Hierarchical Binary Orbital Simulator")
+        self.root.title("Animated Binary Orbital Simulator")
         self.root.geometry("1200x990+25+0")
         self.root.configure(bg="#0d1117")
 
@@ -16,7 +16,7 @@ class AnimatedOrbitalSimApp:
         self.time_step = 0.0  # Normalized system time unit
         self.animation_id = None
 
-        # Custom Dark Theme Styling
+        # Dark Theme
         self.style = ttk.Style()
         self.style.theme_use("clam")
         self.style.configure(".", background="#0d1117", foreground="white", fieldbackground="#161b22")
@@ -35,7 +35,7 @@ class AnimatedOrbitalSimApp:
         self.setup_inputs()
         self.setup_plot()
 
-        # Start core calculation and kick off animation loop
+        # Start core calculation and animation loop
         self.update_parameters()
         self.animate_loop()
 
@@ -154,7 +154,7 @@ class AnimatedOrbitalSimApp:
 
             self.i_wd_rad = np.radians(self.i_wd_deg)
 
-            # Physics Math
+            # Keplerian Physics math
             L_orange = self.m_orange ** 4
             L_wd = 1e-3 * (self.m_wd ** -1) * (age_gyr ** -1.4)
             r_peri_wd = self.a_wd * (1 - self.e_wd)
@@ -234,7 +234,7 @@ class AnimatedOrbitalSimApp:
                 self.root.after_cancel(self.animation_id)
 
     def force_plot_redraw(self):
-        # Clears plot window elements and resets boundaries cleanly
+        # Clears plot window elements and resets boundaries
         self.ax.clear()
         self.ax.xaxis.label.set_color('#8b949e')
         self.ax.yaxis.label.set_color('#8b949e')
@@ -283,10 +283,7 @@ class AnimatedOrbitalSimApp:
         yp = self.a_p * np.sin(theta_p) * self.visual_scale
         zp = 0
 
-        r_wd = (
-                self.a_wd * (1 - self.e_wd ** 2)
-                / (1 + self.e_wd * np.cos(theta_wd))
-        )
+        r_wd = (self.a_wd * (1 - self.e_wd ** 2) / (1 + self.e_wd * np.cos(theta_wd)))
 
         xw = r_wd * np.cos(theta_wd)
 
@@ -323,10 +320,6 @@ class AnimatedOrbitalSimApp:
             30,
             self.animate_loop
         )
-
-
-
-
 
 if __name__ == "__main__":
     root = tk.Tk()

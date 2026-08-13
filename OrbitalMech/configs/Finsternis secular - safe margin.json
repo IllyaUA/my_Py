@@ -1,0 +1,40 @@
+{
+  "name": "Finsternis secular - safe margin",
+  "notes": "Same mechanism, backed off. Binary at 12 AU gives a 1.37x Holman-Wiegert margin instead of 1.14x, a longer eccentricity cycle and a lower peak e. Weaker seasons, more headroom.",
+  "m_orange": 0.85,
+  "m_wd": 0.6,
+  "wd_age_gyr": 0.03,
+  "a_wd": 12.0,
+  "e_wd": 0.65,
+  "i_wd": 0.0,
+  "blue_mass_e": 1.0,
+  "blue_a": 0.725,
+  "blue_e": 0.0,
+  "blue_inc": 0.0,
+  "blue_f0": 0.0,
+  "giant_enabled": false,
+  "giant_mass_j": 1.0,
+  "giant_a": 1.8,
+  "giant_e": 0.05,
+  "giant_inc": 2.0,
+  "giant_f0": 180.0,
+  "obliquity": 23.4,
+  "spin_azimuth": 0.0,
+  "moon_draw_scale": 400,
+  "moons": [
+    {
+      "enabled": true,
+      "mass_lunar": 1.0,
+      "a": 0.0018,
+      "inc": 2.0,
+      "phase": 0.0
+    },
+    {
+      "enabled": false,
+      "mass_lunar": 0.1,
+      "a": 0.0009,
+      "inc": 0.5,
+      "phase": 90.0
+    }
+  ]
+}

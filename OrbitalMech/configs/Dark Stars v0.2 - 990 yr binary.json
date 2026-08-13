@@ -1,0 +1,40 @@
+{
+  "name": "Dark Stars v0.2 - 990 yr binary",
+  "notes": "The original wide, inclined architecture. a_wd solved from the 990 yr target: a = (P^2 M)^(1/3) = 112.4293 AU. KNOWN PROBLEM: at 75 deg the gas giant is itself Kozai-unstable on a ~2e4 yr timescale and nothing suppresses it. Once its eccentricity grows, its periastron crosses the blue planet and the planet is scattered. Kept for reference and comparison, not as a long-term-stable system.",
+  "m_orange": 0.85,
+  "m_wd": 0.6,
+  "wd_age_gyr": 0.1,
+  "a_wd": 112.4293,
+  "e_wd": 0.875,
+  "i_wd": 75.0,
+  "blue_mass_e": 1.0,
+  "blue_a": 0.725,
+  "blue_e": 0.0,
+  "blue_inc": 0.0,
+  "blue_f0": 0.0,
+  "giant_enabled": true,
+  "giant_mass_j": 1.0,
+  "giant_a": 1.8,
+  "giant_e": 0.05,
+  "giant_inc": 2.0,
+  "giant_f0": 180.0,
+  "obliquity": 23.4,
+  "spin_azimuth": 0.0,
+  "moon_draw_scale": 500,
+  "moons": [
+    {
+      "enabled": true,
+      "mass_lunar": 1.0,
+      "a": 0.00257,
+      "inc": 5.1,
+      "phase": 0.0
+    },
+    {
+      "enabled": false,
+      "mass_lunar": 0.1,
+      "a": 0.0009,
+      "inc": 0.5,
+      "phase": 90.0
+    }
+  ]
+}

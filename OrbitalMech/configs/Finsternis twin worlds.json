@@ -1,0 +1,46 @@
+{
+  "name": "Finsternis twin worlds",
+  "notes": "The Finsternis secular system plus a second-generation world orbiting the white dwarf itself. 2 Mars masses at 0.31 AU, an 81.4 day year, R ~ 0.66 R_E, g ~ 0.49 g. Stable: the S-type limit around the WD (perturber = the orange dwarf, mu = 0.586) is 0.687 AU, a 2.2x margin. First-generation planets this close were engulfed during the progenitor's giant phase, so this world formed AFTER the white dwarf did, out of fallback debris - which is also why it is small. Climate runs on a cooling clock: at WD age 30 Myr it sits at S=0.85 (temperate, T_eq 244 K), having left the runaway zone 1.3 Myr ago, and it freezes for good in ~19.5 Myr as the WD fades. Tides from the WD run ~9.3 lunar. UV is ~5x Earth and with 0.49 g the atmosphere is leaking. Every 26.3 yr the orange dwarf's approach adds a ~6% flux pulse: a second summer from the other star. The two worlds mirror each other: the blue planet's millennial cycle is driven by the WD, the WD planet's generation-scale fate is set by its own sun's cooling.",
+  "m_orange": 0.85,
+  "m_wd": 0.6,
+  "wd_age_gyr": 0.03,
+  "a_wd": 10.0,
+  "e_wd": 0.65,
+  "i_wd": 0.0,
+  "blue_mass_e": 1.0,
+  "blue_a": 0.725,
+  "blue_e": 0.0,
+  "blue_inc": 0.0,
+  "blue_f0": 0.0,
+  "giant_enabled": false,
+  "giant_mass_j": 1.0,
+  "giant_a": 1.8,
+  "giant_e": 0.05,
+  "giant_inc": 2.0,
+  "giant_f0": 180.0,
+  "wdp_enabled": true,
+  "wdp_mass_mars": 2.0,
+  "wdp_a": 0.31,
+  "wdp_e": 0.02,
+  "wdp_inc": 0.5,
+  "wdp_f0": 90.0,
+  "obliquity": 23.4,
+  "spin_azimuth": 0.0,
+  "moon_draw_scale": 400,
+  "moons": [
+    {
+      "enabled": true,
+      "mass_lunar": 1.0,
+      "a": 0.0015,
+      "inc": 2.0,
+      "phase": 0.0
+    },
+    {
+      "enabled": false,
+      "mass_lunar": 0.1,
+      "a": 0.0009,
+      "inc": 0.5,
+      "phase": 90.0
+    }
+  ]
+}
