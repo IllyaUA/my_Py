@@ -11,7 +11,7 @@ CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "configs")
 
 
-# ---------------------------------------------------------------- Constants
+# Constants
 # Units everywhere: AU, years, solar masses -> G = 4*pi^2.
 
 G_SIM = 4.0 * np.pi ** 2
